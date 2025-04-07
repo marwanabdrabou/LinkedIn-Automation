@@ -17,6 +17,8 @@ import threading
 import schedule
 import openpyxl
 from bs4 import BeautifulSoup
+from selenium.webdriver.chrome.options import Options
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -281,8 +283,16 @@ def search_and_send_messages(title, message):
     driver = None
     
     try:
+        
+        chrome_options = Options()
+    
+        # Headless mode (no GUI)
+        chrome_options.add_argument("--headless=new")  # New headless mode in Chrome 109+
+        chrome_options.add_argument("--no-sandbox")  # Bypass OS security
+        chrome_options.add_argument("--disable-dev-shm-usage")  # Prevent crashes in Docker/Linux
         # Initialize Chrome driver
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()),
+                                  options=chrome_options)
         
         # Login
         st.write("Logging in to LinkedIn...")
