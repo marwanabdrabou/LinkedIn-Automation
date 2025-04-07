@@ -35,7 +35,7 @@ if 'scheduled_time' not in st.session_state:
     st.session_state.scheduled_time = None
 
 # Streamlit interface
-st.title("LinkedIn Auto Messenger with Daily Scheduling")
+st.title("LinkedIn Automation Messages")
 
 # Sidebar for settings
 with st.sidebar:
