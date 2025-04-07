@@ -7,6 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException
 import logging
 import time
 import pandas as pd
@@ -165,7 +166,7 @@ def linkedin_login(driver):
         username = driver.find_element(By.ID, "username")
         password = driver.find_element(By.ID, "password")
 
-        # Type credentials slowly to appear more human-like
+        # Type credentials slowly
         actions = ActionChains(driver)
         actions.send_keys_to_element(username, LINKEDIN_EMAIL).perform()
         time.sleep(1)
@@ -175,16 +176,89 @@ def linkedin_login(driver):
         # Click login button
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
         
+        # Check for verification page by URL and specific elements
+        try:
+            # Wait for either the feed page or verification page
+            WebDriverWait(driver, 15).until(
+                lambda d: "feed" in d.current_url.lower() or 
+                         "checkpoint/challenge" in d.current_url.lower()
+            )
+            
+            # If we're on verification page
+            if "checkpoint/challenge" in driver.current_url.lower():
+                # Wait for the specific verification input field from the HTML you shared
+                verification_input = WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, 
+                        "//input[@name='pin' and @id='input__email_verification_pin']"))
+                )
+                
+                # Create verification UI container
+                verification_container = st.empty()
+                
+                with verification_container.container():
+                    st.warning("🔐 LinkedIn Verification Required")
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        verification_code = st.text_input(
+                            "Enter the 6-digit code sent to your email/phone:",
+                            max_chars=6,
+                            key="verification_code"
+                        )
+                    with col2:
+                        st.write("")  # Spacer
+                        submit_disabled = len(st.session_state.get('verification_code', '')) != 6
+                        if st.button("Submit", disabled=submit_disabled):
+                            try:
+                                # Clear and enter the code carefully
+                                verification_input.clear()
+                                for char in verification_code:
+                                    verification_input.send_keys(char)
+                                    time.sleep(0.1)
+                                
+                                # Submit the form (LinkedIn often auto-submits on 6 digits)
+                                # But we'll also look for a submit button just in case
+                                try:
+                                    submit_button = WebDriverWait(driver, 3).until(
+                                        EC.element_to_be_clickable((By.XPATH, 
+                                            "//button[contains(text(), 'Submit') or "
+                                            "contains(text(), 'Verify')]")))
+                                    submit_button.click()
+                                except:
+                                    # If no button found, just press Enter
+                                    verification_input.send_keys(Keys.RETURN)
+                                
+                                # Wait for successful login
+                                WebDriverWait(driver, 30).until(
+                                    EC.presence_of_element_located((By.XPATH, 
+                                        "//input[@aria-label='Search']")))
+                                
+                                verification_container.empty()
+                                st.success("✅ Verification successful!")
+                                time.sleep(2)
+                                return True
+                            except Exception as e:
+                                st.error(f"⚠️ Verification failed: {str(e)}")
+                                # Keep the verification UI for retry
+                                return False
+                
+                # Wait here until verification is complete
+                while True:
+                    time.sleep(1)
+                    if "feed" in driver.current_url.lower():
+                        verification_container.empty()
+                        break
+                    if not st.session_state.get('verification_active', True):
+                        break
+
+        except TimeoutException:
+            # No verification required
+            pass
+        
         # Handle CAPTCHA if enabled
-        if manual_captcha:
+        if manual_captcha and "checkpoint/challenge" in driver.current_url.lower():
             st.warning("Please complete the CAPTCHA verification if prompted")
             WebDriverWait(driver, LOGIN_TIMEOUT).until(
-                lambda d: "feed" in d.current_url.lower() or "checkpoint/challenge" in d.current_url.lower())
-            
-            if "checkpoint/challenge" in driver.current_url.lower():
-                st.warning("CAPTCHA verification required. Please solve it manually in the browser window.")
-                WebDriverWait(driver, LOGIN_TIMEOUT).until(
-                    lambda d: "feed" in d.current_url.lower())
+                lambda d: "feed" in d.current_url.lower())
         
         # Verify successful login
         WebDriverWait(driver, 30).until(
@@ -195,7 +269,6 @@ def linkedin_login(driver):
     
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
-        # Check for specific error messages
         try:
             error = driver.find_element(By.ID, "error-for-password").text
             st.error(f"Login failed: {error}")
@@ -286,12 +359,13 @@ def search_and_send_messages(title, message):
         
         chrome_options = Options()
     
-        # # Headless mode (no GUI)
-        # chrome_options.add_argument("--headless=new")  # New headless mode in Chrome 109+
-        # chrome_options.add_argument("--no-sandbox")  # Bypass OS security
-        # chrome_options.add_argument("--disable-dev-shm-usage")  # Prevent crashes in Docker/Linux
+        # Headless mode (no GUI)
+        chrome_options.add_argument("--headless=new")  # New headless mode in Chrome 109+
+        chrome_options.add_argument("--no-sandbox")  # Bypass OS security
+        chrome_options.add_argument("--disable-dev-shm-usage")  # Prevent crashes in Docker/Linux
         # Initialize Chrome driver
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()),
+                                  options=chrome_options)
         
         # Login
         st.write("Logging in to LinkedIn...")
